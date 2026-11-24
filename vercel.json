@@ -1,7 +1,0 @@
-{
-  "functions": {
-    "api/speech.js": {
-      "maxDuration": 60
-    }
-  }
-}
