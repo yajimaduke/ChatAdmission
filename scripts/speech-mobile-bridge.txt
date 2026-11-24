@@ -1,0 +1,64 @@
+// Speech/mobile repair v2; runs after the original Vercel bridge inside the app closure.
+function safeSpeechError(status,data){
+ var detail=typeof data?.message==='string'?data.message:'',code=typeof data?.code==='string'?data.code:'HTTP_'+status,stage=typeof data?.stage==='string'?data.stage:'';
+ if(status===401&&code==='speech_access_required')detail='在「網站預設連線」輸入 ADMI_SITE_ACCESS_CODE；或在語音設定輸入原有 ADMI_SPEECH_ACCESS_TOKEN。不是 Google API key。';
+ if(code==='google_credentials_missing_or_invalid')detail='Vercel 尚未讀到有效的 GOOGLE_SERVICE_ACCOUNT_JSON；請貼完整 JSON，選對 Production 後重新部署。';
+ if(stage==='stt_recognize')detail+=' 請核對 STT 模型、地區、語言及錄音格式；翻譯支援不代表 STT 支援。';
+ return (stage?'['+stage+'] ':'')+code+(detail?' · '+detail:'');
+}
+async function callSpeechV2(op,payload){
+ var headers={'content-type':'application/json'},url;
+ if(HOSTED)url='/ext/v1/google-speech/speech';
+ else if(speechConfig){url=speechConfig.baseUrl+'/api/speech';headers.authorization='Bearer '+speechConfig.token;}
+ else if(USE_SERVER_API){url='/api/speech';headers=websiteHeaders();}
+ else throw new Error('請先設定 Speech Backend Base URL 及後端存取碼 / Configure speech backend access first.');
+ var body=JSON.stringify(Object.assign({op:op},payload||{}));
+ if(HOSTED&&new TextEncoder().encode(body).length>60000)throw new Error('錄音超過學校代理大小限制，未有上傳；請縮短錄音。');
+ var controller=new AbortController(),timer=setTimeout(function(){controller.abort();},80000);
+ try{var r=await fetch(url,{method:'POST',headers:headers,body:body,credentials:HOSTED||USE_SERVER_API?'same-origin':'omit',signal:controller.signal,referrerPolicy:'strict-origin-when-cross-origin'});var d=await r.json().catch(function(){return null;});if(!r.ok)throw new Error(safeSpeechError(r.status,d));if(!d)throw new Error('語音後端未回傳 JSON，請檢查網址／部署。');return d;}
+ catch(e){if(e.name==='AbortError')throw new Error('語音請求逾時，請稍後自行再試。');if(e instanceof TypeError)throw new Error('語音後端連線／CORS 失敗，請檢查網址及允許來源。');throw e;}finally{clearTimeout(timer);}
+}
+speechRequest=callSpeechV2;
+const originalReadAloudV2=readAloud;
+readAloud=async function(value){
+ var tools=document.querySelector('.cloud-tools');if(tools)tools.open=true;
+ if(!$('voiceSelect').options.length){await loadVoices();if(!$('voiceSelect').options.length)return;}
+ return originalReadAloudV2(value);
+};
+const originalLoadVoicesV2=loadVoices;
+loadVoices=async function(){
+ await originalLoadVoicesV2();
+ var options=Array.from($('voiceSelect').options);if(!options.length)return;
+ var language=selectedLanguage==='zht'?'yue-HK':selectedLanguage==='zhs'?'cmn-CN':languageRecords.find(function(x){return x.id===selectedLanguage;})?.code||'en';
+ var selected=options.find(function(o){return (o.dataset.language||'').toLowerCase()===language.toLowerCase();})||options.find(function(o){return (o.dataset.language||'').toLowerCase().startsWith(language.split('-')[0].toLowerCase());});
+ if(selected)$('voiceSelect').value=selected.value;
+};
+var cloudAudioV2=$('cloudAudio');if(cloudAudioV2){cloudAudioV2.setAttribute('playsinline','');cloudAudioV2.preload='none';cloudAudioV2.addEventListener('error',function(){speechStatus('語音音訊不能播放，請重新產生；如已準備好，按播放器的播放鍵。');});}
+var speechToolsV2=document.querySelector('.cloud-tools');
+if(speechToolsV2){
+ var diagnostic=elem('button','btn b-yellow speech-diagnostic','檢查語音後端 / Diagnose speech');diagnostic.type='button';
+ diagnostic.addEventListener('click',async function(){
+  try{var url;if(HOSTED)throw new Error('學校代理不提供根目錄診斷；請先按載入聲音，讀取下方錯誤代碼。');else url=(speechConfig?speechConfig.baseUrl:'')+'/api/speech';
+   var r=await fetch(url,{method:'GET',credentials:'same-origin'}),d=await r.json().catch(function(){return null;});if(!r.ok||!d)throw new Error('語音後端不存在或未更新（HTTP '+r.status+'）。');
+   if(d.version!=='admi-speech-mobile-2')throw new Error('後端仍是舊版，請確認 api/speech.js 已更新並重新部署。');
+   speechStatus('Google JSON: '+(d.credentialsConfigured?'已讀到 / configured':'未設定或無效 / missing')+' · 網站存取碼: '+(d.websiteAccessCodeConfigured?'已設定':'未設定')+' · 個人語音存取碼: '+(d.personalSpeechTokenConfigured?'已設定':'未設定')+' · STT: '+d.sttLocation+'/'+d.sttModel+'。這只檢查設定，不代表 Google 認證／模型已測試成功。');
+  }catch(e){speechStatus(e.message);}
+ });speechToolsV2.appendChild(diagnostic);
+}
+var languageToolsV2=document.querySelector('.language-tools');
+if(languageToolsV2&&!languageToolsV2.closest('.language-disclosure')){
+ var disclosure=elem('details','language-disclosure'),label=elem('summary','','翻譯語言搜尋／狀態 / Translation language tools');
+ languageToolsV2.parentNode.insertBefore(disclosure,languageToolsV2);disclosure.append(label,languageToolsV2);disclosure.open=!window.matchMedia('(max-width:680px)').matches;
+}
+var baselineHeightV2=window.innerHeight;
+function updateMobileViewportV2(){
+ var vv=window.visualViewport;if(vv&&Math.abs(vv.scale-1)>.05)return;
+ var height=Math.round(vv?vv.height:window.innerHeight);if(height<150)return;
+ document.documentElement.style.setProperty('--admi-viewport-height',height+'px');
+ var editing=/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName||'');
+ if(!editing)baselineHeightV2=Math.max(height,window.innerHeight);
+ document.body.classList.toggle('admi-keyboard-open',editing&&height<baselineHeightV2-120);
+}
+window.addEventListener('resize',updateMobileViewportV2);window.addEventListener('orientationchange',function(){setTimeout(function(){baselineHeightV2=window.innerHeight;updateMobileViewportV2();},250);});
+window.visualViewport?.addEventListener('resize',updateMobileViewportV2);
+document.addEventListener('focusin',function(){setTimeout(updateMobileViewportV2,80);});document.addEventListener('focusout',function(){setTimeout(updateMobileViewportV2,120);});updateMobileViewportV2();
