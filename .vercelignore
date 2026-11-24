@@ -1,0 +1,6 @@
+scripts/**
+public/**
+api/speech.js
+.env*
+*.zip
+*service-account*.json
