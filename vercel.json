@@ -1,14 +1,13 @@
 {
-  "buildCommand": "node scripts/prepare.cjs",
-  "outputDirectory": "public",
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "buildCommand": "",
+  "outputDirectory": ".",
   "functions": {
     "api/chat.js": {
       "maxDuration": 60
     },
     "api/translate.js": {
-      "maxDuration": 60
-    },
-    "api/speech.js": {
       "maxDuration": 60
     }
   }
