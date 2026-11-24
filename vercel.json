@@ -1,0 +1,15 @@
+{
+  "buildCommand": "node scripts/prepare.cjs",
+  "outputDirectory": "public",
+  "functions": {
+    "api/chat.js": {
+      "maxDuration": 60
+    },
+    "api/translate.js": {
+      "maxDuration": 60
+    },
+    "api/speech.js": {
+      "maxDuration": 60
+    }
+  }
+}

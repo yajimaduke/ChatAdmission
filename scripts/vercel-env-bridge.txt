@@ -1,0 +1,51 @@
+// Admi Vercel environment bridge. Injected inside the existing app closure at build time.
+const USE_SERVER_API=!HOSTED&&!LOCAL&&location.protocol==='https:';
+var admiSiteCode='';
+function websiteHeaders(){var h={'content-type':'application/json'};if(admiSiteCode)h.authorization='Bearer '+admiSiteCode;return h;}
+const directFastRequest=fastRequest;
+fastRequest=async function(messages,config){
+ if(!USE_SERVER_API||config)return directFastRequest(messages,config);
+ var d=await requestJson('/api/chat',{method:'POST',headers:websiteHeaders(),body:JSON.stringify({messages:messages,language:languageName()})},'Website FastGPT');
+ if(typeof d.text!=='string'||!d.text.trim())throw new Error('Website FastGPT returned no answer.');
+ return d.text.replace(/<thinking>[\s\S]*?<\/thinking>/gi,'').trim();
+};
+const directGoogleTranslate=googleTranslate;
+googleTranslate=async function(texts,target,config){
+ if(!USE_SERVER_API||config)return directGoogleTranslate(texts,target,config);
+ var d=await requestJson('/api/translate',{method:'POST',headers:websiteHeaders(),body:JSON.stringify({q:texts,target:target,source:'en'})},'Website Translation');
+ if(!Array.isArray(d?.data?.translations)||d.data.translations.length!==texts.length)throw new Error('Invalid website translation response.');
+ return d.data.translations.map(function(x){return String(x.translatedText);});
+};
+const directLoadLanguages=loadLanguages;
+loadLanguages=async function(){
+ if(!USE_SERVER_API||googleConfig)return directLoadLanguages();
+ if(languageLoading||translationBusy)return;
+ try{
+  languageLoading=true;$('reloadLanguages').disabled=true;$('languageStatus').textContent='讀取網站 Google 語言清單… / Loading website languages…';
+  var d=await requestJson('/api/translate?target=zh-TW',{method:'GET',headers:websiteHeaders()},'Website Languages');
+  if(!Array.isArray(d?.data?.languages))throw new Error('Invalid website language list.');
+  var rows=languageRecords.filter(function(x){return x.builtIn;}),seen=new Set(rows.map(function(x){return x.code.toLowerCase();}));
+  d.data.languages.forEach(function(x){if(typeof x.language!=='string'||!x.language||seen.has(x.language.toLowerCase()))return;seen.add(x.language.toLowerCase());rows.push({id:x.language,code:x.language,name:x.name||displayName(x.language,'zh-Hant'),english:displayName(x.language,'en'),native:displayName(x.language,x.language)});});
+  languageRecords=rows;filterLanguages();$('languageStatus').textContent=rows.length+' 個語言選項 / language options';
+ }catch(e){$('languageStatus').textContent=e.message;}finally{languageLoading=false;$('reloadLanguages').disabled=false;}
+};
+const oldUpdateKeyStatus=updateKeyStatus;
+updateKeyStatus=function(){oldUpdateKeyStatus();if(USE_SERVER_API)$('environmentNote').textContent='Vercel：預設使用伺服器環境變數。下方個人設定只在你套用後覆蓋本次連線；清除後回復網站預設。 / Website credentials are used by default; personal settings override this session only.';};
+const oldSetStatus=setStatus;
+setStatus=function(){oldSetStatus();if(USE_SERVER_API&&!state.busy&&!fgConfig){$('statusDot').classList.remove('off');$('statusText').textContent='網站連線 / Website connection';}};
+const directSpeechRequest=speechRequest;
+speechRequest=async function(op,payload){
+ if(!USE_SERVER_API||speechConfig)return directSpeechRequest(op,payload);
+ // Retain the existing backend's separately configured speech access-token flow.
+ throw new Error('Cloud 語音仍須在設定套用語音後端存取碼；FastGPT／Translation 已使用網站環境變數。 / Configure speech access separately.');
+};
+if(USE_SERVER_API){
+ var envPanel=elem('section','api-section');envPanel.id='websiteConnectionSettings';
+ envPanel.appendChild(elem('h3','','網站預設連線 / Website connection'));
+ var envStatus=elem('p','key-note','檢查環境設定中… / Checking server configuration…');envStatus.id='websiteConfigStatus';envStatus.setAttribute('role','status');envPanel.appendChild(envStatus);
+ var codeLabel=elem('label','','網站存取碼（如管理員有設定） / Website access code, if required');codeLabel.htmlFor='websiteAccessCode';envPanel.appendChild(codeLabel);
+ var codeInput=elem('input');codeInput.id='websiteAccessCode';codeInput.type='password';codeInput.autocomplete='off';envPanel.appendChild(codeInput);
+ var button=elem('button','btn b-green','套用存取碼／重新載入 / Apply code & reload languages');button.type='button';button.addEventListener('click',function(){admiSiteCode=codeInput.value.trim();codeInput.value='';loadLanguages();});envPanel.appendChild(button);
+ $('environmentNote').insertAdjacentElement('afterend',envPanel);
+ requestJson('/api/config',{method:'GET'},'Website configuration').then(function(c){envStatus.textContent='FastGPT: '+(c.chatConfigured?'已設定 / configured':'缺少環境變數 / missing settings')+' · Translation: '+(c.translationConfigured?'已設定 / configured':'缺少金鑰 / missing key')+(c.accessCodeRequired?' · 需要網站存取碼 / Access code required':'');if(c.translationConfigured&&!c.accessCodeRequired)loadLanguages();}).catch(function(e){envStatus.textContent=e.message;});
+}
